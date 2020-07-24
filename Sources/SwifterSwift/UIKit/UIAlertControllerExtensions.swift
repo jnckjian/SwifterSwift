@@ -22,8 +22,50 @@ public extension UIAlertController {
     ///   - animated: set true to animate presentation of alert controller (default is true).
     ///   - vibrate: set true to vibrate the device while presenting the alert (default is false).
     ///   - completion: an optional completion handler to be called after presenting alert controller (default is nil).
-    func show(animated: Bool = true, vibrate: Bool = false, completion: (() -> Void)? = nil) {
-        UIApplication.shared.keyWindow?.rootViewController?.present(self, animated: animated, completion: completion)
+    func show(in viewController: UIViewController? = UIApplication.shared.keyWindow?.rootViewController, anchor: AnyObject? = nil, arrowDirection: UIPopoverArrowDirection = .any, animated: Bool = true, vibrate: Bool = false, completion: (() -> Void)? = nil) {
+        // https://github.com/steipete/PSTAlertController/blob/master/PSTAlertController/PSTAlertController.m#L278
+        // We absolutely need a controller going forward.
+        guard var viewController = viewController else {
+            assertionFailure("Can't show alert because there is no root view controller.")
+            return
+        }
+
+        // Use the frontmost viewController for presentation.
+        while let frontViewController = viewController.presentedViewController, !frontViewController.isBeingDismissed {
+            viewController = frontViewController
+        }
+
+        // iPad popover support. It is only necessary in type actionSheet. Will do nothing on iPhone since the popover is nil.
+        // If it has already been set, we should not overwrite it.
+        if preferredStyle == .actionSheet, let popover = popoverPresentationController, popover.sourceView == nil, popover.barButtonItem == nil {
+                switch anchor {
+                case let value as UIBarButtonItem:
+                    popover.barButtonItem = value
+                case let value as UIView:
+                    popover.sourceView = value
+                    popover.sourceRect = value.bounds
+                case let value as NSValue:
+                    popover.sourceView = viewController.view
+                    popover.sourceRect = value.cgRectValue
+                default:
+                    popover.sourceView = viewController.view
+                    popover.sourceRect = viewController.view.bounds
+            }
+
+            // Workaround for rdar://18921595. Unsatisfiable constraints when presenting UIAlertController.
+            // If the rect is too large, the action sheet can't be displayed.
+            let sourceRect = popover.sourceRect
+            let screen = UIScreen.main.bounds
+            if sourceRect.height > screen.height * 0.5 || sourceRect.width > screen.width * 0.5 {
+            popover.sourceRect = CGRect(x: sourceRect.origin.x + sourceRect.width / 2.0, y: sourceRect.origin.y +       sourceRect.height / 2.0, width: 1.0, height: 1.0)
+            
+            }
+
+            popover.permittedArrowDirections = arrowDirection
+        }
+
+        viewController.present(self, animated: animated, completion: completion)
+
         if vibrate {
             #if canImport(AudioToolbox)
             AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)
